@@ -17,8 +17,9 @@ const REST_ANGLE = (180 - PATTERN_TILT) % 180; // 110
 
 // Phase 2: The pattern
 // The chevron tile as an inline SVG data URL, used as the background image of the spinning layer.
+// A 40x80 tile with four coloured zigzag lines on a dark fill, tiled across a very large rect.
 
-/* Your chevron pattern, unchanged. */
+/* rotate(70) in patternTransform is the tilt; PATTERN_TILT above must match it. */
 const PATTERN = `url("data:image/svg+xml,<svg id='patternId' width='100%' height='100%' xmlns='http://www.w3.org/2000/svg'><defs><pattern id='a' patternUnits='userSpaceOnUse' width='40' height='80' patternTransform='scale(1) rotate(70)'><rect x='0' y='0' width='100%' height='100%' fill='hsla(240,6.7%,17.6%,1)'/><path d='M-10 5l20 10L30 5l20 10'  stroke-linecap='square' stroke-width='1' stroke='hsla(47,80.9%,61%,1)' fill='none'/><path d='M-10 25l20 10 20-10 20 10'  stroke-linecap='square' stroke-width='1' stroke='hsla(4.1,89.6%,58.4%,1)' fill='none'/><path d='M-10 45l20 10 20-10 20 10'  stroke-linecap='square' stroke-width='1' stroke='hsla(186.8,100%,41.6%,1)' fill='none'/><path d='M-10 65l20 10 20-10 20 10'  stroke-linecap='square' stroke-width='1' stroke='hsla(258.5,59.4%,59.4%,1)' fill='none'/></pattern></defs><rect width='800%' height='800%' transform='translate(0,0)' fill='url(%23a)'/></svg>")`;
 
 

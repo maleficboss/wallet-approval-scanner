@@ -1,18 +1,29 @@
 import { ethers } from "ethers";
 
-/*destructure all props passed from parent
-token=token in question
-spender=wallet that moved the funds
-amount=amount allowed, wether 0, < unlimted or unlimted
-id=id in the mock array
-onRevoke=function that set allowance to 0
-revoked=flag for checking if onRevoked has been called. t/f
+/*
+Props (all from App):
+id=row number from the backend (1-based); passed back to onRevoke so App can find the row
+token=token contract address
+spender=address the wallet allowed to move this token
+amount=current allowance as a string, the raw on-chain number with no decimals applied
+isUnlimited=true when the backend matched amount to max uint256 or max uint96
+decimals=the token's decimals, or null if the contract doesn't expose them
+symbol=the token's symbol, or null if the contract doesn't expose one
+status=this row's revoke progress from App, { state, hash }, or undefined if no revoke has started
+onRevoke=App's handleRevoke, which sends approve(spender, 0)
+App also passes revoked, but this component doesn't read it.
 */
-function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimals, symbol, status}){
-    // Phase 1: Revoked flag
-    // Copies the revoked prop into a readable name used by the amount cell and the button.
 
-    //check if revoke has been set to true
+function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimals, symbol, status}){
+    // Phase 1: Revoke status to button
+    // Reads this row's revoke state and picks the button label and whether it can be clicked.
+    //   no state         "Revoke", clickable
+    //   awaiting-wallet  waiting for the user to confirm in the wallet
+    //   confirming       transaction sent, waiting for it to be mined
+    //   revoked          mined, and the allowance read back as 0
+    //   failed           reverted, or the allowance wasn't 0 afterwards; clickable to retry
+    //   unconfirmed      sent, but not mined in time; locked so a second transaction isn't sent
+    // isRevoked is also used by the amount cell.
     const state = status?.state;
     const isRevoked = state === "revoked";
 
@@ -37,17 +48,23 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
             buttonText = "Failed, retry";
             isButtonDisabled = false;
             break;
+        case "unconfirmed":
+            buttonText = "Unconfirmed";
+            isButtonDisabled = true;
+            break;
         default:
             buttonText = "Revoke";
             isButtonDisabled = false;
             break;
     }
+    
 
     // Phase 2: Formatting helpers
     // truncateAddress shortens an address to 0x1234...abcd.
     // cleanSymbol cuts token symbols longer than 8 characters.
     // formattedAmount turns the raw on-chain number into a readable one using the token's
     // decimals, shows "<0.0001" for dust, and falls back to the raw number if decimals are unknown.
+    // parseFloat is fine for display but rounds after about 15 significant digits.
     const truncateAddress = (address) => {
         if(!address) return "";
         return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -78,6 +95,7 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
     // Cells: id, token (symbol if the contract has one, otherwise the short address),
     // amount (Revoked / Unlimited / formatted number), spender, and the revoke button.
     // Hovering the token or spender cell shows the full address.
+    // Once the revoke transaction is sent, a Sepolia Etherscan link to it appears under the button.
     return(
         <tr className={isUnlimited ? "unlimited" : ""}>
             <td>{id}</td>
