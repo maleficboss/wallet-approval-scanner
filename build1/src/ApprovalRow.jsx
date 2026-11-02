@@ -1,3 +1,4 @@
+import { truncateAddress } from "./format";
 import { ethers } from "ethers";
 
 /*
@@ -60,16 +61,12 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
     
 
     // Phase 2: Formatting helpers
-    // truncateAddress shortens an address to 0x1234...abcd.
+    // truncateAddress (from format.js) shortens an address to 0x1234...abcd.
     // cleanSymbol cuts token symbols longer than 8 characters.
     // formattedAmount turns the raw on-chain number into a readable one using the token's
     // decimals, shows "<0.0001" for dust, and falls back to the raw number if decimals are unknown.
     // parseFloat is fine for display but rounds after about 15 significant digits.
-    const truncateAddress = (address) => {
-        if(!address) return "";
-        return `${address.slice(0, 6)}...${address.slice(-4)}`;
-    }
-
+    
     const cleanSymbol = (clean) => {
         if(!clean) return null;
         return clean.length > 8 ? `${clean.slice(0, 8)}...`: clean;
