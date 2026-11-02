@@ -6,6 +6,9 @@ import ChevronBackground from "./ChevronBackground";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ethers } from "ethers";
 
+// backend base URL: localhost in development, the deployed backend in production
+const API_URL = import.meta.env.VITE_API_URL;
+
 function App(){
     // Phase 2: State
     // Everything the page has to remember between renders, in four groups:
@@ -129,7 +132,7 @@ function App(){
         setScans((count) => count + 1);
 
         try{
-            const res = await fetch(`http://localhost:3000/approvals/${paste}`);
+            const res = await fetch(`${API_URL}/approvals/${paste}`);
             const parsed = await res.json();
             // res.ok: the backend answered with a 2xx status
             if(res.ok){
