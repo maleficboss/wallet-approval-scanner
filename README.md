@@ -27,18 +27,15 @@ This tool shows you what you have left open, and closes it.
 
 - Scans a wallet's `Approval` events from roughly the last hour and reads each approval's
   **live** allowance from the token contract, rather than trusting the amount in the
-  original event.
+  original event. During testing, a wallet's approval screen showed "Unlimited" while the
+  transaction it signed approved exactly the wallet's balance; the scanner showed the real
+  amount.
 - Flags unlimited approvals and highlights those rows.
 - Formats amounts with each token's own `decimals`, falling back to the raw integer when a
   token doesn't expose them.
 - Revokes an approval by sending `approve(spender, 0)` from the connected wallet, then
   re-reads the allowance on-chain and only reports success if it is actually zero.
 - Links each revoke transaction to Sepolia Etherscan.
-- Scans a wallet's `Approval` events from roughly the last hour and reads each approval's
-  **live** allowance from the token contract, rather than trusting the amount in the
-  original event. During testing, a wallet's approval screen showed "Unlimited" while the
-  transaction it signed approved exactly the wallet's balance; the scanner showed the real
-  amount.
 
 ---
 
