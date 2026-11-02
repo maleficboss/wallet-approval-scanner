@@ -28,8 +28,8 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
     const isRevoked = state === "revoked";
 
 
-    let buttonText = "Revoke";
-    let isButtonDisabled = false;
+    let buttonText;
+    let isButtonDisabled;
 
     switch (state) {
         case "awaiting-wallet":

@@ -11,7 +11,7 @@ import { ethers } from "ethers";
 // The ABI has the two calls the revoke needs: approve(spender, 0) to revoke,
 // and allowance to read the result back afterwards.
 const SEPOLIA_CHAIN_ID = 11155111;
-const approveAndAlllowanceABI =  [
+const tokenAbi =  [
     "function approve(address spender, uint256 amount) returns (bool)",
     "function allowance(address owner, address spender) view returns (uint256)"
 ];
@@ -60,14 +60,14 @@ function App(){
 
     // wallet and revoke flow
     // scannedAddress: checksummed address of the last successful scan; only this wallet may revoke
-    // account / chainId: set by connectWallet and the wallet listeners; nothing reads them yet
+    // account: the connected wallet's address, set by connectWallet and the accountsChanged listener; shown on the Connect button.
     // status: revoke progress per approval, keyed by getApprovalKey: { state, hash }
     // walletError: wallet problems, kept apart from error so they don't hide the results table
     const [scannedAddress, setScannedAddress] = useState("");
     const [account, setAccount] = useState(null);
-    const [chainId, setChainId] = useState(null);
     const [status, setStatus] = useState({});
     const [walletError, setWalletError] = useState("");
+    const [connecting, setConnecting] = useState(false);
 
     // Phase 3: Values worked out from state
     // Recalculated on every render instead of being stored, so they can never go stale.
@@ -156,7 +156,7 @@ function App(){
                 setError(parsed.error || "Unable to get blockchain history.");
             }
         }
-        catch (err){
+        catch{
             // the request never got an answer, or the answer wasn't JSON
             setError("Server down or connection timed out");
         } finally{
@@ -164,12 +164,17 @@ function App(){
         }
     }
 
+    const truncateAddress = (address) => {
+        if (!address) return "";
+        return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    };
+
+    
 
     // Phase 7: Connect the wallet
-    // Needs a browser wallet (MetaMask and others inject window.ethereum).
-    // eth_requestAccounts opens the wallet's connect prompt. The chain and the first account
-    // (checksummed) are stored. Cancelling the prompt gives ACTION_REJECTED.
-    // account and chainId aren't shown anywhere yet, so a successful connect changes nothing on screen.
+    // eth_requestAccounts opens the wallet's connect prompt. The first account (checksummed)
+    // is stored and shown on the Connect button. Cancelling the prompt gives ACTION_REJECTED.
+
     async function connectWallet(){
         setWalletError("");
 
@@ -177,13 +182,11 @@ function App(){
             setWalletError("No browser wallet found. Install one, such as MetaMask.");
             return;
         }
+        setConnecting(true);
 
         try{
             const browserProvider = new ethers.BrowserProvider(window.ethereum);
             const  accounts = await browserProvider.send("eth_requestAccounts", []);
-            const network = await browserProvider.getNetwork();
-            const id = Number(network.chainId);
-            setChainId(id);
 
             if(accounts && accounts.length > 0){
                 const normalised = ethers.getAddress(accounts[0]);
@@ -197,14 +200,17 @@ function App(){
             }else{
                 setWalletError("Couldn't connect to your wallet. Try again.");
             }
+        }finally{
+            setConnecting(false);
         }
     }
 
     // Phase 8: Follow wallet changes
-    // Listens for the user switching account or network in the wallet and updates state.
+    // Listens for the user switching account in the wallet and updates state.
     // An empty account list means the wallet was disconnected or locked.
-    // The wallet reports the chain as a hex string ("0xaa36a7"); Number() turns it into 11155111.
-    // The cleanup removes both listeners when App unmounts.
+    // On load, eth_accounts (no prompt) restores an account the site is already authorized for.
+    // The cleanup removes the listener when App unmounts.
+    
     useEffect(() => {
         if(!window.ethereum) return;
 
@@ -218,24 +224,21 @@ function App(){
             }
         }
 
-        function chainChanged(id){
-            const numericId = Number(id);
-            setChainId(numericId);
-        }
-
         window.ethereum.on("accountsChanged", accountsChanged);
-        window.ethereum.on("chainChanged", chainChanged);
+
+        window.ethereum.request({method: "eth_accounts"})
+            .then(accountsChanged)
+            .catch(() => {});
 
         return () => {
             window.ethereum.removeListener("accountsChanged", accountsChanged);
-            window.ethereum.removeListener("chainChanged", chainChanged);
         }
 
     }, []);
 
     // Phase 9: Revoke guards
     // getRevokeBlocker asks the wallet directly (eth_accounts, which opens no prompt) instead of
-    // trusting account/chainId state. It returns the first problem as a message, or null when a
+    // trusting account state. It returns the first problem as a message, or null when a
     // revoke can go ahead. Checks in order: a wallet exists, it's connected, it's on Sepolia,
     // and it's the same wallet that was scanned.
     async function getRevokeBlocker(){
@@ -337,7 +340,7 @@ function App(){
             }
 
             // Step 3: send approve(spender, 0)
-            const contract = new ethers.Contract(row.token, approveAndAlllowanceABI, signer);
+            const contract = new ethers.Contract(row.token, tokenAbi, signer);
             updateStatus(key, "awaiting-wallet");
             const tx = await contract.approve(row.spender, 0n);
             sentHash = tx.hash;
@@ -356,7 +359,7 @@ function App(){
             }
 
             // Step 5: read the allowance back (read-only contract, provider instead of signer)
-            const secContract = new ethers.Contract(row.token, approveAndAlllowanceABI, bProvider);
+            const secContract = new ethers.Contract(row.token, tokenAbi, bProvider);
             const read = await secContract.allowance(scannedAddress, row.spender);
 
             if(read === 0n){
@@ -408,7 +411,9 @@ function App(){
                     The form's submit runs scan(); the submit button lives inside Input. */}
                 <h2>This tool can only look back an hour on eth sepolia (testnet chain)</h2>
                 <button>Try mock data</button>
-                <button onClick={connectWallet}>connect wallet</button>
+                <button onClick={connectWallet} disabled={connecting}>
+                    {connecting ? "Connecting..." : account ? truncateAddress(account) : "Connect wallet"}
+                </button>
                 <form onSubmit={scan}>
                     <Input value={paste} onInputChange={handleInputChange} loading={loading}
                         bulbOn={bulbOn} glassRef={glassRef}/>
@@ -445,7 +450,7 @@ function App(){
                                 {revoke.map((rev) => {
                                     const key = getApprovalKey(scannedAddress, rev.token, rev.spender);
                                     return (
-                                        <ApprovalRow onRevoke={handleRevoke} revoked={rev.revoked} status={status[key]}
+                                        <ApprovalRow onRevoke={handleRevoke} status={status[key]}
                                             isUnlimited={rev.isUnlimited} key={rev.id} id={rev.id} token={rev.token}
                                             spender={rev.spender} amount={rev.amount} decimals={rev.decimals} symbol={rev.symbol}
                                         />
