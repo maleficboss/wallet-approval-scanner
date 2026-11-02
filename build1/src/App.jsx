@@ -57,6 +57,8 @@ function App(){
     // viewport position of the bulb, the chevrons open from here
     const [origin, setOrigin] = useState({ x: 0, y: 0 });
     const glassRef = useRef(null);
+    // true while the mouse is over the Scan button; relights the bulb after a successful scan
+    const [hovering, setHovering] = useState(false);
 
     // wallet and revoke flow
     // scannedAddress: checksummed address of the last successful scan; only this wallet may revoke
@@ -72,9 +74,24 @@ function App(){
     // Phase 3: Values worked out from state
     // Recalculated on every render instead of being stored, so they can never go stale.
 
-    // bulb is on while the field holds a valid eth address (same check scan() uses)
-    const bulbOn = ethers.isAddress(paste);
+    // isValid: the field holds a valid eth address (same check scan() uses)
+    // bulbOn: for a valid address, lit until it has been scanned successfully, during a scan,
+    // and while the mouse is over the Scan button. searched is true once a scan of the current
+    // field value has succeeded, and goes back to false when the field changes.
+    // canScan: the Scan button is clickable only for a valid address, and not mid-scan.
+    // It also sets the button's faded look (no valid address yet), so faded always means "can't click";
+    // mid-scan the button uses its grey "Scanning..." style instead.
+    // The bulb alone shows "already scanned".
+    // showHint: the field has text that isn't a valid address. The button is disabled then and
+    // Enter doesn't submit, so scan()'s own error can't appear; this hint tells the user why.
+    const isValid = ethers.isAddress(paste);
+    const bulbOn = isValid && (loading || !searched || hovering);
+    const canScan = isValid && !loading;
+    const showHint = paste !== "" && !isValid;
     const centered = { textAlign: "center" };
+    // heading and subtitle paint above the bulb's glow (Bulb is zIndex 0), like Input's field and button.
+    // Without it, plain text is painted under any positioned element, so the glow covered it.
+    const aboveBulb = { position: "relative", zIndex: 1 };
 
     // Phase 4: Find the bulb on screen
     // measureBulb() reads where the bulb's glass sits in the viewport and returns its centre.
@@ -113,15 +130,19 @@ function App(){
     // Runs when the form is submitted. Clears the last result, rejects an invalid
     // address before any request is sent, starts the background spin, then calls the backend.
     // On success it stores the approvals, drops old revoke statuses (except revokes still
-    // in progress), saves the checksummed address that was scanned, and restarts the timer.
-    // On failure it shows the backend's message. finally always turns loading off.
+    // in progress), saves the checksummed address that was scanned, restarts the timer,
+    // and switches the bulb off. On failure it shows the backend's message and the bulb
+    // stays lit for a retry. finally always turns loading off.
     async function scan (e){
         e.preventDefault();
         // clear old data states
         setError(null);
         setRevoke([]);
+        // back to false so a failed re-scan leaves the bulb lit
+        setSearched(false);
 
-        // check if it is a valid eth address
+        // check if it is a valid eth address. The disabled button already stops this case,
+        // so this is a backstop in case the form is ever submitted another way
         if(!ethers.isAddress(paste)){
             setError("This is not a valid Eth address, the wallet must start with prefix '0x'!");
             return;
@@ -151,6 +172,8 @@ function App(){
                 setTimer(0);
                 setLastScan((count) => count + 1); // first success starts the Last scanned timer
                 setSearched(true);
+                // bulb off even if the mouse is still on the button; the next hover relights it
+                setHovering(false);
             }else{
                 // 400 invalid address, 429 busy or 500 failure: show the backend's message
                 setError(parsed.error || "Unable to get blockchain history.");
@@ -390,8 +413,9 @@ function App(){
 
 
     // Phase 12: Render
-    // Draws the background, the heading, the two buttons and the form (with the bulb),
-    // then the status messages, then the results table when there are rows to show.
+    // Draws the background, the heading, the Connect button and the form (with the bulb),
+    // the invalid-address hint, the subtitle, then the status messages, then the results table
+    // when there are rows to show.
     return (
         <div style={{ position: "relative", minHeight: "100vh", color: "#e6e6e6" }}>
             {/* background: hidden until the first valid scan, then opens from the bulb */}
@@ -406,18 +430,27 @@ function App(){
                 paddingTop: "max(140px, calc(50vh - 70px))",
                 paddingBottom: "40px", paddingLeft: "15px", paddingRight: "15px"
             }}>
-                {/* heading, buttons and form
-                    "Try mock data" has no onClick yet, so it does nothing.
-                    The form's submit runs scan(); the submit button lives inside Input. */}
-                <h2>This tool can only look back an hour on eth sepolia (testnet chain)</h2>
-                <button>Try mock data</button>
+                {/* heading, Connect button, form and subtitle
+                    The form's submit runs scan(); the submit button lives inside Input.
+                    The subtitle sits below the form: above it, the lit bulb's glow made it unreadable. */}
+                <h2 style={aboveBulb}>Wallet Approval Scanner</h2>
                 <button onClick={connectWallet} disabled={connecting}>
                     {connecting ? "Connecting..." : account ? truncateAddress(account) : "Connect wallet"}
                 </button>
                 <form onSubmit={scan}>
                     <Input value={paste} onInputChange={handleInputChange} loading={loading}
-                        bulbOn={bulbOn} glassRef={glassRef}/>
+                        bulbOn={bulbOn} canScan={canScan} onHoverChange={setHovering} glassRef={glassRef}/>
                 </form>
+                {/* hint under the field: text that isn't an address, e.g. a truncated paste */}
+                {showHint && (
+                    <p style={{...aboveBulb, ...centered, margin: "8px 0 0", fontSize: "13px", color: "#f87171"}}>
+                        Not a valid Ethereum address.
+                    </p>
+                )}
+                <p style={{...aboveBulb, ...centered, maxWidth: "520px"}}>
+                    Scan ERC-20 approvals in the last hour only on Ethereum Sepolia (Test Network).
+                    No mainnet approvals will appear.
+                </p>
 
                 {/* status messages: these can stack, e.g. "Last scanned" stays during a re-scan,
                     and a wallet message (orange) can sit above the table.

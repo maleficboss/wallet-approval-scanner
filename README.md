@@ -5,6 +5,8 @@ ones, and lets the wallet owner revoke them on-chain.
 
 Built with React, Express and ethers.js v6. Runs against **Ethereum Sepolia** (testnet).
 
+![Scan results](docs/screenshot.png)
+
 ---
 
 ## The problem
@@ -32,6 +34,7 @@ This tool shows you what you have left open, and closes it.
 - Revokes an approval by sending `approve(spender, 0)` from the connected wallet, then
   re-reads the allowance on-chain and only reports success if it is actually zero.
 - Links each revoke transaction to Sepolia Etherscan.
+During testing, a wallet’s approval screen showed ‘Unlimited’ while the transaction it signed approved exactly the wallet’s balance; the scanner showed the real amount.
 
 ---
 
@@ -150,8 +153,7 @@ config allows.
 
 ### Using it
 
-1. Paste a Sepolia address and press **Scan wallet**. The bulb above the button lights up
-   once the address is valid. You don't need to connect a wallet to scan.
+1. Paste a Sepolia address. Until it's a valid address, the Scan button stays faded and a hint says why; once it's valid, the bulb lights up. Press **Scan wallet**. You don't need to connect a wallet to scan.
 2. Approvals from the last ~hour appear in the table. Unlimited ones are highlighted.
 3. To revoke, press **Connect wallet**. The connected wallet must be the one you scanned,
    and it must be on Sepolia. Otherwise the app tells you what to change instead of
@@ -183,6 +185,7 @@ These are real constraints, not bugs:
 - **One bad token fails the whole scan.** If a token's `allowance()` call reverts, the
   scan returns an error instead of skipping that token.
 - **No pagination or caching.** Every scan re-queries from scratch.
+- **Only exact max values count as unlimited.** An approval that isn't exactly one of the two max values shows as a number and isn't highlighted, however large it is.
 
 ---
 

@@ -79,7 +79,7 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
         if(decimals == null) return `${raw} (raw, decimals unknown)`;
         const num = parseFloat(ethers.formatUnits(raw, decimals));
         if(num > 0 && num < 0.0001) return "<0.0001";
-        return num.toFixed(4);
+        return num.toLocaleString("en-US", { maximumFractionDigits: 4 });
     };
 
 
