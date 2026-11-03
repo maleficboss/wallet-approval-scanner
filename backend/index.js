@@ -20,11 +20,8 @@ const miniAbi = [
 ]
 
 
-// Render puts three proxies in front of the server, verified with /ip.
+// Render sends requests through Cloudflare and its own proxy: the client is 3 hops back. Verified with /ip, Nov 3 2026.
 app.set("trust proxy", 3);
-
-// TEMPORARY: shows the IP Express picks and the raw proxy chain. Remove after checking on Render.
-app.get("/ip", (req, res) => res.json({ ip: req.ip, chain: req.headers["x-forwarded-for"] }));
 
 
 // CORS
