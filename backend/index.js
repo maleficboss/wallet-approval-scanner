@@ -20,6 +20,14 @@ const miniAbi = [
 ]
 
 
+// Render sits a proxy in front of the server; trust one hop so req.ip is the visitor's IP,
+// which is what the rate limiter keys on. Verified with the /ip route on the live server.
+app.set("trust proxy", 1);
+
+// TEMPORARY: shows the IP Express sees. Remove after checking it on Render.
+app.get("/ip", (req, res) => res.send(req.ip));
+
+
 // CORS
 // Allowed browser origins, comma-separated in ALLOWED_ORIGINS; local Vite by default
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173,http://127.0.0.1:5173")
