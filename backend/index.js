@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { rateLimit } from "express-rate-limit";
 import { collectPairs } from "./pairs.js";
 import mock from "./list.js";
 import { ethers } from "ethers";
@@ -20,11 +21,24 @@ const miniAbi = [
 
 
 // CORS
-// Only the Vite dev server (port 5173, under either local name) may call this API from a browser.
-app.use(cors({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"]
-}));
+// Allowed browser origins, comma-separated in ALLOWED_ORIGINS; local Vite by default
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173,http://127.0.0.1:5173")
+    .split(",")
+    .map((origin) => origin.trim());
+    
+app.use(cors({ origin: allowedOrigins }));
+console.log("Allowed origins:", allowedOrigins);
 
+// Rate limit: each IP may start 5 scans a minute. One scan costs ~31 getLogs calls plus
+// 3 reads per approval, so this caps how much of the Alchemy quota one visitor can use.
+// Counts live in memory, so they reset when the server restarts.
+const scanLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { success: false, error: "Too many scans from your connection. Try again in a minute." },
+});
 
 // Helper: optional token reads
 // decimals() and symbol() are optional in ERC-20, so some tokens revert or return junk for them.
@@ -49,7 +63,7 @@ app.get("/approvals", (req, res) => {
 // Scan route
 // GET /approvals/:address returns every ERC-20 approval the address gave in about the
 // last 300 blocks (roughly an hour on Sepolia) that still has an allowance above zero.
-app.get("/approvals/:address", async (req, res) => {
+app.get("/approvals/:address", scanLimiter, async (req, res) => {
     try{
         // Phase 1: Validate the address and build the filter
         // A bad address gets a 400 before any RPC call is made.
