@@ -4,6 +4,7 @@ Finds the ERC-20 token approvals an Ethereum wallet has given, flags the unlimit
 ones, and lets the wallet owner revoke them on-chain.
 
 Built with React, Express and ethers.js v6. Runs against **Ethereum Sepolia** (testnet).
+**Live:** [wallet-approval-scanner.onrender.com](https://wallet-approval-scanner.onrender.com). The backend runs on Render's free tier and sleeps after 15 minutes without traffic, so the first scan after a quiet spell can take about a minute.
 
 ![Scan results](docs/screenshot.png)
 
@@ -83,6 +84,7 @@ error logged on the server only.
 **Rate limits answer properly.** A 429 from the provider comes back to the client as a 429
 with a `Retry-After: 10` header and a readable message, not a generic 500.
 Separately, each IP may start five scans a minute; past that the backend answers 429 with `Retry-After: 60`, so one visitor can't use up the RPC quota.
+On Render, requests pass through Cloudflare and Render's own proxy before reaching Express, so `trust proxy` is set to exactly 3 hops. The number was checked on the live server, including with a forged `X-Forwarded-For` header. Set too low, every visitor shows up as a Cloudflare address and they all share one limit. Set too high, anyone can send a fake IP with each request and never hit the limit.
 
 **Revoking verifies rather than assumes.** Before anything is sent, the app checks the
 wallet live at click time: a wallet is installed, it is connected, it is on Sepolia, and it
@@ -112,6 +114,7 @@ through drops off the list, and one that didn't shows **Revoke** again.
 | Chain | ethers.js v6, Alchemy JSON-RPC, Ethereum Sepolia |
 | Contract reads | `eth_getLogs`, `allowance()`, `decimals()`, `symbol()` |
 | Writes | `approve(spender, 0)` via an injected browser wallet |
+| Hosting | Render: static site (frontend), web service (backend) |
 
 ---
 
@@ -199,6 +202,7 @@ These are real constraints, not bugs:
   scan returns an error instead of skipping that token.
 - **No pagination or caching.** Every scan re-queries from scratch.
 - **Only exact max values count as unlimited.** An approval that isn't exactly one of the two max values shows as a number and isn't highlighted, however large it is.
+- **The per-IP limit depends on Render's network.** The 3-hop count matches Render's setup as of November 2026. If Render adds or removes a proxy, the limiter would count the wrong address without any error. The counts are also kept in memory, so they reset whenever the server restarts or sleeps.
 
 ---
 

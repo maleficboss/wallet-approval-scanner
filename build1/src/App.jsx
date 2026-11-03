@@ -18,6 +18,8 @@ function App(){
     const [revoke, setRevoke] = useState([]);
     const [paste, setPasted] = useState("");
     const [loading, setLoading] = useState(false);
+    // true once a scan has run past 5s, usually because the free-tier server is waking up
+    const [slow, setSlow] = useState(false);
     const [error, setError] = useState(null);
     const [searched, setSearched] = useState(false);
 
@@ -125,6 +127,7 @@ function App(){
         }
 
         setLoading(true);
+        const slowTimer = setTimeout(() => setSlow(true), 5000);
 
         // start the chevron reveal + one 3s spin (only for a real scan, not a rejected address)
         const pos = measureBulb();
@@ -160,6 +163,8 @@ function App(){
             setError("Server down or connection timed out");
         } finally{
             setLoading(false);
+            clearTimeout(slowTimer);
+            setSlow(false);
         }
     }
 
@@ -426,7 +431,7 @@ function App(){
                     and a wallet message (orange) can sit above the table.
                     "No approvals found" needs a finished scan with no rows and a non-empty field. */}
                 {lastScan > 0 && <p style={centered}>Last scanned: {timer}s ago</p>}
-                {loading && <p style={centered}>loading approvals...</p>}
+                {loading && <p style={centered}>{slow ? "Waking up the server. The first scan after a quiet spell can take up to a minute." : "loading approvals..."}</p>}
                 {error && <p style={{...centered, color: "red", fontWeight: "bold"}}>{error}</p>}
                 {walletError && <p style={{...centered, color: "#f5a524", fontWeight: "bold"}}>{walletError}</p>}
                 {!loading && !error && searched && revoke.length === 0 && paste &&  <p style={centered}>No approvals found in the last hour.</p>}
