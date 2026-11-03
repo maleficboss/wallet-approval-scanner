@@ -82,6 +82,7 @@ error logged on the server only.
 
 **Rate limits answer properly.** A 429 from the provider comes back to the client as a 429
 with a `Retry-After: 10` header and a readable message, not a generic 500.
+Separately, each IP may start five scans a minute; past that the backend answers 429 with `Retry-After: 60`, so one visitor can't use up the RPC quota.
 
 **Revoking verifies rather than assumes.** Before anything is sent, the app checks the
 wallet live at click time: a wallet is installed, it is connected, it is on Sepolia, and it
@@ -133,6 +134,8 @@ RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 PORT=3000
 ```
 
+Optional: `ALLOWED_ORIGINS=https://your-frontend.example` (comma-separated). Without it, only the local Vite server (`localhost:5173`) may call the API.
+
 `.env` is gitignored. Do not commit it.
 
 ```bash
@@ -146,11 +149,20 @@ The backend listens on `http://localhost:3000`.
 ```bash
 cd build1
 npm install
+```
+
+Create `build1/.env.local` (gitignored):
+
+```
+VITE_API_URL=http://localhost:3000
+```
+
+```bash
 npm run dev
 ```
 
-Vite serves on `http://localhost:5173`, which is the only origin the backend's CORS
-config allows.
+Vite serves on `http://localhost:5173`, which the backend allows by default. To allow
+another origin, set `ALLOWED_ORIGINS` in `backend/.env`.
 
 ### Using it
 
