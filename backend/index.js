@@ -20,11 +20,11 @@ const miniAbi = [
 ]
 
 
-// Render puts two proxies in front of the server, verified with /ip.
-app.set("trust proxy", 2);
+// Render puts three proxies in front of the server, verified with /ip.
+app.set("trust proxy", 3);
 
-// TEMPORARY: shows the IP Express sees. Remove after checking it on Render.
-app.get("/ip", (req, res) => res.send(req.ip));
+// TEMPORARY: shows the IP Express picks and the raw proxy chain. Remove after checking on Render.
+app.get("/ip", (req, res) => res.json({ ip: req.ip, chain: req.headers["x-forwarded-for"] }));
 
 
 // CORS
