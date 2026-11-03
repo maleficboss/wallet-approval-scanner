@@ -20,9 +20,8 @@ const miniAbi = [
 ]
 
 
-// Render sits a proxy in front of the server; trust one hop so req.ip is the visitor's IP,
-// which is what the rate limiter keys on. Verified with the /ip route on the live server.
-app.set("trust proxy", 1);
+// Render puts two proxies in front of the server, verified with /ip.
+app.set("trust proxy", 2);
 
 // TEMPORARY: shows the IP Express sees. Remove after checking it on Render.
 app.get("/ip", (req, res) => res.send(req.ip));
