@@ -1,8 +1,11 @@
 import { truncateAddress } from "./format";
+import { addressUrl, txUrl } from "./links";
+import { ArrowUpRight, CheckIcon, WarningIcon } from "./icons";
+import CopyButton from "./CopyButton";
 import { ethers } from "ethers";
 
 /*
-Props (all from App):
+Props (all from Results, which gets them from App):
 id=row number from the backend (1-based); passed back to onRevoke so App can find the row
 token=token contract address
 spender=address the wallet allowed to move this token
@@ -12,68 +15,53 @@ decimals=the token's decimals, or null if the contract doesn't expose them
 symbol=the token's symbol, or null if the contract doesn't expose one
 status=this row's revoke progress from App, { state, hash }, or undefined if no revoke has started
 onRevoke=App's handleRevoke, which sends approve(spender, 0)
-App also passes revoked, but this component doesn't read it.
 */
 
-function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimals, symbol, status}){
+function ApprovalRow({ token, spender, amount, id, onRevoke, isUnlimited, decimals, symbol, status }){
     // Phase 1: Revoke status to button
-    // Reads this row's revoke state and picks the button label and whether it can be clicked.
+    // Reads this row's revoke state and picks the button's label, look and whether it can be clicked.
     //   no state         "Revoke", clickable
-    //   awaiting-wallet  waiting for the user to confirm in the wallet
-    //   confirming       transaction sent, waiting for it to be mined
-    //   revoked          mined, and the allowance read back as 0
-    //   failed           reverted, or the allowance wasn't 0 afterwards; clickable to retry
+    //   awaiting-wallet  waiting for the user to confirm in the wallet (grey, spinner)
+    //   confirming       transaction sent, waiting for it to be mined (grey, spinner)
+    //   failed           reverted, or the allowance wasn't 0 afterwards; red, clickable to retry
     //   unconfirmed      sent, but not mined in time; locked so a second transaction isn't sent
-    // isRevoked is also used by the amount cell.
+    //   revoked          mined, and the allowance read back as 0; no button, a green mark instead
     const state = status?.state;
     const isRevoked = state === "revoked";
 
-
-    let buttonText;
-    let isButtonDisabled;
-
+    let action;
     switch (state) {
         case "awaiting-wallet":
-            buttonText = "Confirm in wallet...";
-            isButtonDisabled = true;
+            action = { label: "Confirm in wallet…", className: "btn-revoke is-pending", disabled: true, spinner: true };
             break;
         case "confirming":
-            buttonText = "Confirming...";
-            isButtonDisabled = true;
-            break;
-        case "revoked":
-            buttonText = "Revoked";
-            isButtonDisabled = true;
+            action = { label: "Confirming…", className: "btn-revoke is-pending", disabled: true, spinner: true };
             break;
         case "failed":
-            buttonText = "Failed, retry";
-            isButtonDisabled = false;
+            action = { label: "Failed, retry", className: "btn-revoke is-failed", disabled: false };
             break;
         case "unconfirmed":
-            buttonText = "Unconfirmed";
-            isButtonDisabled = true;
+            action = { label: "Unconfirmed", className: "btn-revoke is-unconfirmed", disabled: true };
             break;
         default:
-            buttonText = "Revoke";
-            isButtonDisabled = false;
+            action = { label: "Revoke", className: "btn-revoke", disabled: false };
             break;
     }
-    
+
 
     // Phase 2: Formatting helpers
-    // truncateAddress (from format.js) shortens an address to 0x1234...abcd.
     // cleanSymbol cuts token symbols longer than 8 characters.
     // formattedAmount turns the raw on-chain number into a readable one using the token's
-    // decimals, shows "<0.0001" for dust, and falls back to the raw number if decimals are unknown.
+    // decimals, shows "<0.0001" for dust, and returns null when decimals are unknown,
+    // so the cell can show the raw number and say why.
     // parseFloat is fine for display but rounds after about 15 significant digits.
-    
     const cleanSymbol = (clean) => {
         if(!clean) return null;
-        return clean.length > 8 ? `${clean.slice(0, 8)}...`: clean;
-    }
+        return clean.length > 8 ? `${clean.slice(0, 8)}…` : clean;
+    };
 
     const formattedAmount = (raw) => {
-        if(decimals == null) return `${raw} (raw, decimals unknown)`;
+        if(decimals == null) return null;
         const num = parseFloat(ethers.formatUnits(raw, decimals));
         if(num > 0 && num < 0.0001) return "<0.0001";
         return num.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -82,49 +70,98 @@ function ApprovalRow({token, spender, amount, id, onRevoke, isUnlimited, decimal
 
     // Phase 3: Prepare what the row shows
     // Runs the helpers once, before the JSX, so the markup below only reads finished values.
+    // The avatar shows the symbol's first character, or "?" when there is no symbol.
+    // Array.from splits by character, so a symbol starting with an emoji isn't cut in half.
     const displaySymbol = cleanSymbol(symbol);
-    const reducedTokenAddress = truncateAddress(token);
-    const reducedSpenderAddress = truncateAddress(spender);
+    const shortToken = truncateAddress(token);
+    const shortSpender = truncateAddress(spender);
+    const avatar = displaySymbol ? Array.from(displaySymbol)[0].toUpperCase() : "?";
+    const readable = formattedAmount(amount);
+    const tokenName = displaySymbol || shortToken;
 
 
     // Phase 4: Render the row
-    // Unlimited approvals get the "unlimited" class so they can be highlighted.
-    // Cells: id, token (symbol if the contract has one, otherwise the short address),
-    // amount (Revoked / Unlimited / formatted number), spender, and the revoke button.
-    // Hovering the token or spender cell shows the full address.
-    // Once the revoke transaction is sent, a Sepolia Etherscan link to it appears under the button.
-    return(
-        <tr className={isUnlimited ? "unlimited" : ""}>
-            <td>{id}</td>
-            <td title={token}>
-                {displaySymbol ? (
-                    <span>
-                        <strong>{displaySymbol}</strong> ({reducedTokenAddress})
-                    </span>
-                    ) : (
-                        <span>{reducedTokenAddress}</span>
-                    )
-                }
+    // Four cells: asset, amount, spender, action. data-cell and data-label are for the phone
+    // layout, where the CSS turns each row into a small card and prints the label above the value.
+    // The explicit role attributes keep table semantics for screen readers when the CSS
+    // changes how the table is displayed.
+    // Hovering the asset or spender shows the full address.
+    return (
+        <tr role="row">
+            <td data-cell="asset" role="cell">
+                <div className="asset" title={token}>
+                    <span className={displaySymbol ? "avatar" : "avatar is-unknown"} aria-hidden="true">{avatar}</span>
+                    <div className="asset-text">
+                        {displaySymbol ? (
+                            <>
+                                <div className="asset-name">{displaySymbol}</div>
+                                <div className="asset-sub mono">{shortToken}</div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="asset-name mono">{shortToken}</div>
+                                <div className="asset-sub">No symbol</div>
+                            </>
+                        )}
+                    </div>
+                </div>
             </td>
-            <td>
-                {isRevoked && <span style={{color:"gray"}}>Revoked</span>}
-                {!isRevoked && (isUnlimited ? "Unlimited" : formattedAmount(amount))}
-            </td>
-            <td title={spender}>{reducedSpenderAddress}</td>
-            <td>
-                <button onClick={() => onRevoke(id)} disabled={isButtonDisabled}>
-                    {buttonText}
-                </button>
 
-                {status?.hash &&(
-                    <a
-                        href={`https://sepolia.etherscan.io/tx/${status.hash}`} target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ fontSize: "12px", color: "#3b82f6", textDecoration: "underline", textAlign: "center" }}
-                    >
-                        View on Etherscan
-                    </a>
+            <td data-cell="amount" data-label="Approved amount" role="cell">
+                {isRevoked && <span className="muted">Revoked</span>}
+                {!isRevoked && isUnlimited && (
+                    <span className="pill-unlimited"><WarningIcon size={12} /> Unlimited</span>
                 )}
+                {!isRevoked && !isUnlimited && readable !== null && (
+                    <span className="amount">
+                        {readable}{displaySymbol && <span className="amount-unit"> {displaySymbol}</span>}
+                    </span>
+                )}
+                {!isRevoked && !isUnlimited && readable === null && (
+                    <>
+                        <span className="amount">{amount}</span>
+                        <div className="asset-sub">Raw, decimals unknown</div>
+                    </>
+                )}
+            </td>
+
+            <td data-cell="spender" data-label="Approved spender" role="cell">
+                <div className="spender">
+                    <span className="mono" title={spender}>{shortSpender}</span>
+                    <CopyButton value={spender} label="Copy spender address" />
+                    <a
+                        className="icon-btn" href={addressUrl(spender)} target="_blank" rel="noopener noreferrer"
+                        aria-label="Open spender on Sepolia Etherscan" title="Open on Sepolia Etherscan"
+                    >
+                        <ArrowUpRight size={12} />
+                    </a>
+                </div>
+            </td>
+
+            <td data-cell="action" role="cell">
+                <div className="action">
+                    {isRevoked ? (
+                        <span className="revoked-mark"><CheckIcon size={13} /> Revoked</span>
+                    ) : (
+                        <button
+                            type="button" className={action.className} disabled={action.disabled}
+                            onClick={() => onRevoke(id)}
+                            aria-label={`${action.label} ${tokenName} approval for spender ${shortSpender}`}
+                            title={state === "unconfirmed"
+                                ? "Sent, but not mined within about 3 minutes. Check the transaction before trying again."
+                                : undefined}
+                        >
+                            {action.spinner && <span className="spinner" aria-hidden="true" />}
+                            {action.label}
+                        </button>
+                    )}
+
+                    {status?.hash && (
+                        <a className="tx-link" href={txUrl(status.hash)} target="_blank" rel="noopener noreferrer">
+                            View tx <ArrowUpRight size={10} />
+                        </a>
+                    )}
+                </div>
             </td>
         </tr>
     );

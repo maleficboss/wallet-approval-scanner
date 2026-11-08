@@ -1,9 +1,16 @@
 import { SEPOLIA_CHAIN_ID, tokenAbi, waitForReceipt } from "./chain";
-import { truncateAddress } from "./format";
-import ApprovalRow from "./ApprovalRow";
-import Input from "./Input";
-import ChevronBackground from "./ChevronBackground";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { formatAgo } from "./format";
+import { REPO_URL, X_URL } from "./links";
+import { ArrowDown } from "./icons";
+import Logo from "./Logo";
+import Nav from "./Nav";
+import ScanForm from "./ScanForm";
+import Stage from "./Stage";
+import Results from "./Results";
+import About from "./About";
+import Footer from "./Footer";
+import Toast from "./Toast";
+import { useEffect, useRef, useState } from "react";
 import { ethers } from "ethers";
 
 // backend base URL: localhost in development, the deployed backend in production
@@ -11,9 +18,8 @@ const API_URL = import.meta.env.VITE_API_URL;
 
 function App(){
     // Phase 2: State
-    // Everything the page has to remember between renders, in four groups:
-    // the scan itself, the "Last scanned" timer, the bulb/background animation,
-    // and the wallet and revoke flow.
+    // Everything the page has to remember between renders, in three groups:
+    // the scan itself, the "Last scanned" timer, and the wallet and revoke flow.
     // scan: results, what is typed in the field, and the loading / error / searched flags
     const [revoke, setRevoke] = useState([]);
     const [paste, setPasted] = useState("");
@@ -21,28 +27,20 @@ function App(){
     // true once a scan has run past 5s, usually because the free-tier server is waking up
     const [slow, setSlow] = useState(false);
     const [error, setError] = useState(null);
+    // true once a scan of the current field value has succeeded; false again when the field changes
     const [searched, setSearched] = useState(false);
 
     // timer: seconds since the last successful scan
     const [timer, setTimer] = useState(0)
 
-    // counts successful scans. 0 = nothing scanned yet: no "Last scanned" line, no timer running
+    // counts successful scans. 0 = nothing scanned yet: no results section, no timer running
     const [lastScan, setLastScan] = useState(0);
-
-    // animation
-    // scans = how many valid scans have been started, drives the chevron background
-    const [scans, setScans] = useState(0);
-    // viewport position of the bulb, the chevrons open from here
-    const [origin, setOrigin] = useState({ x: 0, y: 0 });
-    const glassRef = useRef(null);
-    // true while the mouse is over the Scan button; relights the bulb after a successful scan
-    const [hovering, setHovering] = useState(false);
 
     // wallet and revoke flow
     // scannedAddress: checksummed address of the last successful scan; only this wallet may revoke
     // account: the connected wallet's address, set by connectWallet and the accountsChanged listener; shown on the Connect button.
     // status: revoke progress per approval, keyed by getApprovalKey: { state, hash }
-    // walletError: wallet problems, kept apart from error so they don't hide the results table
+    // walletError: wallet problems, kept apart from error so they don't hide the results
     const [scannedAddress, setScannedAddress] = useState("");
     const [account, setAccount] = useState(null);
     const [status, setStatus] = useState({});
@@ -52,51 +50,27 @@ function App(){
     // Phase 3: Values worked out from state
     // Recalculated on every render instead of being stored, so they can never go stale.
 
-    // isValid: the field holds a valid eth address (same check scan() uses)
-    // bulbOn: for a valid address, lit until it has been scanned successfully, during a scan,
-    // and while the mouse is over the Scan button. searched is true once a scan of the current
-    // field value has succeeded, and goes back to false when the field changes.
+    // isValid: the field holds a valid eth address (same check runScan() uses)
     // canScan: the Scan button is clickable only for a valid address, and not mid-scan.
-    // It also sets the button's faded look (no valid address yet), so faded always means "can't click";
-    // mid-scan the button uses its grey "Scanning..." style instead.
-    // The bulb alone shows "already scanned".
     // showHint: the field has text that isn't a valid address. The button is disabled then and
-    // Enter doesn't submit, so scan()'s own error can't appear; this hint tells the user why.
+    // Enter doesn't submit, so runScan()'s own error can't appear; this hint tells the user why.
     const isValid = ethers.isAddress(paste);
-    const bulbOn = isValid && (loading || !searched || hovering);
     const canScan = isValid && !loading;
     const showHint = paste !== "" && !isValid;
-    const centered = { textAlign: "center" };
-    // heading and subtitle paint above the bulb's glow (Bulb is zIndex 0), like Input's field and button.
-    // Without it, plain text is painted under any positioned element, so the glow covered it.
-    const aboveBulb = { position: "relative", zIndex: 1 };
 
-    // Phase 4: Find the bulb on screen
-    // measureBulb() reads where the bulb's glass sits in the viewport and returns its centre.
-    // The layout effect runs it once on load and again on every resize,
-    // so the chevron background always opens from the bulb.
-    function measureBulb(){
-        const el = glassRef.current;
-        if(!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    }
+    // phase: what the disc in the middle shows. Results stay up while the field is edited,
+    // because the summary card names the address they belong to.
+    let phase = "idle";
+    if(loading) phase = "loading";
+    else if(error) phase = "error";
+    else if(lastScan > 0) phase = "results";
+    const hasResults = phase === "results";
 
-    // keep the origin correct on load and when the window is resized
-    useLayoutEffect(() => {
-        function update(){
-            const pos = measureBulb();
-            if(pos) setOrigin(pos);
-        }
-        update();
-        window.addEventListener("resize", update);
-        return () => window.removeEventListener("resize", update);
-    }, []);
 
 
     // Phase 5: Typing in the wallet field
-    // Keeps the input controlled and resets "searched", so the
-    // "No approvals found" message disappears as soon as the address is edited.
+    // Keeps the input controlled and resets "searched", so the disc goes back to
+    // "Ready to scan" for a new address.
     function handleInputChange(e){
         // take what was typed and store it as the field's value
         const {value} = e.target;
@@ -105,23 +79,32 @@ function App(){
     }
 
     // Phase 6: Scan the wallet
-    // Runs when the form is submitted. Clears the last result, rejects an invalid
-    // address before any request is sent, starts the background spin, then calls the backend.
+    // handleSubmit runs when the form is submitted and scans what is in the field.
+    // "Scan again" calls runScan with the address already scanned, so it can't pick up
+    // a half-edited field. runScan clears the last result, rejects an invalid
+    // address before any request is sent, then calls the backend.
     // On success it stores the approvals, drops old revoke statuses (except revokes still
-    // in progress), saves the checksummed address that was scanned, restarts the timer,
-    // and switches the bulb off. On failure it shows the backend's message and the bulb
-    // stays lit for a retry. finally always turns loading off.
-    async function scan (e){
+    // in progress), saves the checksummed address that was scanned and restarts the timer.
+    // On failure it shows the backend's message. finally always turns loading off.
+    function handleSubmit(e){
         e.preventDefault();
+        runScan(paste);
+    }
+
+    function scanAgain(){
+        setPasted(scannedAddress);
+        runScan(scannedAddress);
+    }
+
+    async function runScan(address){
         // clear old data states
         setError(null);
         setRevoke([]);
-        // back to false so a failed re-scan leaves the bulb lit
         setSearched(false);
 
         // check if it is a valid eth address. The disabled button already stops this case,
         // so this is a backstop in case the form is ever submitted another way
-        if(!ethers.isAddress(paste)){
+        if(!ethers.isAddress(address)){
             setError("This is not a valid Eth address, the wallet must start with prefix '0x'!");
             return;
         }
@@ -129,30 +112,23 @@ function App(){
         setLoading(true);
         const slowTimer = setTimeout(() => setSlow(true), 5000);
 
-        // start the chevron reveal + one 3s spin (only for a real scan, not a rejected address)
-        const pos = measureBulb();
-        if(pos) setOrigin(pos);
-        setScans((count) => count + 1);
-
         try{
-            const res = await fetch(`${API_URL}/approvals/${paste}`);
+            const res = await fetch(`${API_URL}/approvals/${address}`);
             const parsed = await res.json();
             // res.ok: the backend answered with a 2xx status
             if(res.ok){
                 setRevoke(parsed.data);
                 // keep only statuses whose revoke is still running; inFlightKeys is declared
-                // further down, which is fine because scan only runs after App has finished rendering
+                // further down, which is fine because runScan only runs after App has finished rendering
                 setStatus((prev) => {
                     return Object.fromEntries(
                         Object.entries(prev).filter(([key]) => inFlightKeys.current.has(key))
                     )
                 })
-                setScannedAddress(ethers.getAddress(paste));
+                setScannedAddress(ethers.getAddress(address));
                 setTimer(0);
                 setLastScan((count) => count + 1); // first success starts the Last scanned timer
                 setSearched(true);
-                // bulb off even if the mouse is still on the button; the next hover relights it
-                setHovering(false);
             }else{
                 // 400 invalid address, 429 busy or 500 failure: show the backend's message
                 setError(parsed.error || "Unable to get blockchain history.");
@@ -387,88 +363,73 @@ function App(){
     }
 
 
+    // statusFor looks up one row's revoke status by its approval key.
+    function statusFor(row){
+        return status[getApprovalKey(scannedAddress, row.token, row.spender)];
+    }
+
+
     // Phase 12: Render
-    // Draws the background, the heading, the Connect button and the form (with the bulb),
-    // the invalid-address hint, the subtitle, then the status messages, then the results table
-    // when there are rows to show.
+    // Nav, then the hero: copy and form on the left, the disc and the three steps on the right.
+    // Once a scan succeeds, the Open approvals section appears under the hero. How it works, Limits and the footer
+    // are always there. Wallet problems show in a toast fixed to the bottom of the screen.
     return (
-        <div style={{ position: "relative", minHeight: "100vh", color: "#e6e6e6" }}>
-            {/* background: hidden until the first valid scan, then opens from the bulb */}
-            <ChevronBackground scans={scans} origin={origin} />
+        <div className="page">
+            <div className="container">
+                <Nav account={account} connecting={connecting} onConnect={connectWallet} />
 
-            {/* content column, stacked above the background */}
-            <div style={{
-                position: "relative", zIndex: 2,
-                display: "flex", flexDirection: "column", alignItems: "center",
-                // pushes the form to the middle of the screen; the 140px floor leaves room for the bulb
-                // the form keeps this position when results appear below it
-                paddingTop: "max(140px, calc(50vh - 70px))",
-                paddingBottom: "40px", paddingLeft: "15px", paddingRight: "15px"
-            }}>
-                {/* heading, Connect button, form and subtitle
-                    The form's submit runs scan(); the submit button lives inside Input.
-                    The subtitle sits below the form: above it, the lit bulb's glow made it unreadable. */}
-                <h2 style={aboveBulb}>Wallet Approval Scanner</h2>
-                <button onClick={connectWallet} disabled={connecting}>
-                    {connecting ? "Connecting..." : account ? truncateAddress(account) : "Connect wallet"}
-                </button>
-                <form onSubmit={scan}>
-                    <Input value={paste} onInputChange={handleInputChange} loading={loading}
-                        bulbOn={bulbOn} canScan={canScan} onHoverChange={setHovering} glassRef={glassRef}/>
-                </form>
-                {/* hint under the field: text that isn't an address, e.g. a truncated paste */}
-                {showHint && (
-                    <p style={{...aboveBulb, ...centered, margin: "8px 0 0", fontSize: "13px", color: "#f87171"}}>
-                        Not a valid Ethereum address.
-                    </p>
-                )}
-                <p style={{...aboveBulb, ...centered, maxWidth: "520px"}}>
-                    Scan ERC-20 approvals in the last hour only on Ethereum Sepolia (Test Network).
-                    No mainnet approvals will appear.
-                </p>
+                <main>
+                    <section className="hero" id="scan" aria-labelledby="hero-title">
+                        <div className="hero-copy">
+                            <p className="eyebrow">
+                                <Logo size={18} /> <strong>NAC</strong> Approval scanner
+                            </p>
+                            <h1 id="hero-title">Check your approvals</h1>
+                            <p className="lede">
+                                Paste an Ethereum Sepolia address to list the token approvals it gave in the
+                                last hour. Only connect when you intend to revoke.
+                            </p>
 
-                {/* status messages: these can stack, e.g. "Last scanned" stays during a re-scan,
-                    and a wallet message (orange) can sit above the table.
-                    "No approvals found" needs a finished scan with no rows and a non-empty field. */}
-                {lastScan > 0 && <p style={centered}>Last scanned: {timer}s ago</p>}
-                {loading && <p style={centered}>{slow ? "Waking up the server. The first scan after a quiet spell can take up to a minute." : "loading approvals..."}</p>}
-                {error && <p style={{...centered, color: "red", fontWeight: "bold"}}>{error}</p>}
-                {walletError && <p style={{...centered, color: "#f5a524", fontWeight: "bold"}}>{walletError}</p>}
-                {!loading && !error && searched && revoke.length === 0 && paste &&  <p style={centered}>No approvals found in the last hour.</p>}
+                            <ScanForm
+                                value={paste} onChange={handleInputChange} onSubmit={handleSubmit}
+                                loading={loading} canScan={canScan} showHint={showHint} error={error}
+                            />
 
-                {/* results table: one ApprovalRow per approval the backend returned.
-                    Each row gets its revoke status by its approval key. */}
-                {!loading && !error && revoke.length > 0 && (
-                    // dark panel so the table stays readable over the chevrons
-                    <div style={{
-                        marginTop: "24px", padding: "16px", maxWidth: "100%", overflowX: "auto",
-                        background: "rgba(0, 0, 0, 0.78)", borderRadius: "8px"
-                    }}>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Id</th>
-                                    <th>Token</th>
-                                    <th>Amount</th>
-                                    <th>Spender</th>
-                                    <th>Revoke Approval</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {revoke.map((rev) => {
-                                    const key = getApprovalKey(scannedAddress, rev.token, rev.spender);
-                                    return (
-                                        <ApprovalRow onRevoke={handleRevoke} status={status[key]}
-                                            isUnlimited={rev.isUnlimited} key={rev.id} id={rev.id} token={rev.token}
-                                            spender={rev.spender} amount={rev.amount} decimals={rev.decimals} symbol={rev.symbol}
-                                        />
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                            <div className="hero-meta">
+                                <a className="btn-outline" href="#how-it-works">How it works</a>
+                                <span className="meta-note">Testnet only · about one hour of history</span>
+                            </div>
+
+                            <div className="icon-links">
+                                <a className="icon-link" href={hasResults ? "#open-approvals" : "#how-it-works"} aria-label="Scroll down">
+                                    <ArrowDown />
+                                </a>
+                                <a className="icon-link" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="Source on GitHub">GH</a>
+                                <a className="icon-link" href={X_URL} target="_blank" rel="noopener noreferrer" aria-label="maleficboss on X">X</a>
+                            </div>
+                        </div>
+
+                        <Stage
+                            phase={phase} slow={slow} ready={isValid && !searched}
+                            total={revoke.length}
+                        />
+                    </section>
+
+                    {hasResults && (
+                        <Results
+                            scannedAddress={scannedAddress} rows={revoke} statusFor={statusFor}
+                            onRevoke={handleRevoke} onScanAgain={scanAgain} scanning={loading}
+                            lastScanned={formatAgo(timer)}
+                        />
+                    )}
+
+                    <About />
+                </main>
+
+                <Footer />
             </div>
+
+            {walletError && <Toast message={walletError} onDismiss={() => setWalletError("")} />}
         </div>
     );
 }

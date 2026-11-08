@@ -169,8 +169,8 @@ another origin, set `ALLOWED_ORIGINS` in `backend/.env`.
 
 ### Using it
 
-1. Paste a Sepolia address. Until it's a valid address, the Scan button stays faded and a hint says why; once it's valid, the bulb lights up. Press **Scan wallet**. You don't need to connect a wallet to scan.
-2. Approvals from the last ~hour appear in the table. Unlimited ones are highlighted.
+1. Paste a Sepolia address. Until it's a valid address, the Scan button stays faded and a hint says why. Press **Scan wallet**. You don't need to connect a wallet to scan.
+2. Approvals from the last ~hour appear under **Open approvals**. Unlimited ones carry an amber **Unlimited** tag.
 3. To revoke, press **Connect wallet**. The connected wallet must be the one you scanned,
    and it must be on Sepolia. Otherwise the app tells you what to change instead of
    sending a transaction.
